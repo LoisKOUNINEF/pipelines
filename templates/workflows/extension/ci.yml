@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  # branches get CI through their pull request: a push to a PR branch doesn't run it twice
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}-${{ inputs.tag }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: __CHECK_JOB_NAME__
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+__CHECK_STEPS__
+  build:
+    name: Build (${{ matrix.browser }})
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [__BROWSERS__]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/build-extension
+        with:
+          browser: ${{ matrix.browser }}
+          tag: ${{ inputs.tag }}
+
+      __SOURCE_ARCHIVE_STEP__
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: __NAME__-${{ matrix.browser }}
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256
+            dist/${{ matrix.browser }}/
+          if-no-files-found: error
+          retention-days: ${{ inputs.tag != '' && 30 || 7 }}

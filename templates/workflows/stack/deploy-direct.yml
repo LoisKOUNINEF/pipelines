@@ -1,0 +1,167 @@
+name: CI/CD __SERVICE_TITLE__ production
+
+on:
+  push:
+    branches:
+      - main
+__PATHS__
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-24.04
+
+    outputs:
+      components: ${{ steps.get_components.outputs.components }}
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Ensure tag is on main
+        run: |
+          if [ "$(git branch --contains $GITHUB_SHA | grep 'main')" = "" ]; then
+            echo "❌ Tag is not on main. Aborting __SERVICE__ deployment."
+            exit 1
+          fi
+
+__TEST_STEP__
+      - name: Ensure scripts are executable
+        run: chmod +x .github/workflows/scripts/jobs/*.sh
+
+      - name: Lowercase the repo name and project name
+        run: .github/workflows/scripts/jobs/format-name.sh
+
+      - name: Set Git SHA in env
+        run: echo "GITHUB_SHA=${{ github.sha }}" >> $GITHUB_ENV
+
+__COMPONENTS_STEP__
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish Docker images
+        run: .github/workflows/scripts/jobs/build-and-publish.sh
+        env:
+          SERVICE_NAME: "__SERVICE__"
+          COMPONENTS: ${{ steps.get_components.outputs.components }}
+          GITHUB_SHA: ${{ github.sha }}
+
+  deploy:
+    needs: build-and-publish
+    runs-on: ubuntu-24.04
+    env:
+      SERVICE_NAME: "__SERVICE__"
+      STACK_NAME: "production"
+      COMPONENTS: ${{ needs.build-and-publish.outputs.components }}
+__PORTS__
+      DOMAIN_NAME: "__DOMAIN__"
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Ensure scripts are executable
+        run: chmod -R +x .github/workflows/scripts/jobs/*.sh
+
+      - name: Lowercase the repo name and project name
+        run: .github/workflows/scripts/jobs/format-name.sh
+
+      - name: Set Git SHA in env
+        run: echo "GITHUB_SHA=${{ github.sha }}" >> $GITHUB_ENV
+
+      - name: Generate new stack file
+        run: .github/workflows/scripts/jobs/create-stack.sh
+
+      - name: Update stack file with latest tags
+        run: .github/workflows/scripts/jobs/add-tag.sh
+
+      - name: Copy updated stack file to VPS
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.SSH_PASS }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "new-${{ env.SERVICE_NAME }}-${{ env.STACK_NAME }}.yml"
+          target: "${{ env.PROJECT_LOWER }}"
+
+      - name: Copy deployment scripts to VPS
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.SSH_PASS }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "__SCP_SOURCES__"
+          target: "~/${{ env.PROJECT_LOWER }}/scripts"
+          strip_components: 3
+
+      - name: Deploy to production
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          DOCKER_AUTH: ${{ secrets.DOCKER_AUTH }}
+          ENCRYPTION_PASSWORD: ${{ secrets.ENCRYPTION_PASSWORD }}
+          REPO_LOWER: ${{ env.REPO_LOWER }}
+          PROJECT_LOWER: ${{ env.PROJECT_LOWER }}
+          STACK_NAME: ${{ env.STACK_NAME }}
+          SERVICE_NAME: ${{ env.SERVICE_NAME }}
+          DB: "__DB__"
+          SERVER_REPLICAS: "__SERVER_REPLICAS__"
+          HEALTHCHECK_TIMEOUT: "150"
+          PIPELINE: "direct"
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.SSH_PASS }}
+          port: ${{ secrets.SSH_PORT }}
+          envs: DOCKER_AUTH,ENCRYPTION_PASSWORD,REPO_LOWER,PROJECT_LOWER,STACK_NAME,SERVICE_NAME,DB,SERVER_REPLICAS,HEALTHCHECK_TIMEOUT,PIPELINE
+          script: |
+            cd $PROJECT_LOWER
+            chmod -R +x scripts/deployment/*.sh__CHMOD_DB__
+            ./scripts/deployment/deploy.sh
+
+  delete-old-images:
+    runs-on: ubuntu-24.04
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        component: __COMPONENTS_JSON__
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Ensure scripts are executable
+        run: chmod +x .github/workflows/scripts/jobs/*.sh
+
+      - name: Lowercase the repo name and project name
+        run: .github/workflows/scripts/jobs/format-name.sh
+
+      - name: Delete old container images
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ env.PROJECT_LOWER }}-__SERVICE__-${{ matrix.component }}
+          package-type: 'container'
+          min-versions-to-keep: __KEEP_IMAGES__
+          token: ${{ secrets.GITHUB_TOKEN }}

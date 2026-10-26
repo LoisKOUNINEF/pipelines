@@ -1,0 +1,51 @@
+
+  chrome-web-store:
+    name: Chrome Web Store
+    needs: github-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: store
+    permissions: {}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: __NAME__-chrome
+          path: dist
+
+      - name: Upload and submit for review
+        env:
+          CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum --check --strict __NAME__-chrome-*.zip.sha256)
+          zip_file=$(ls dist/__NAME__-chrome-*.zip)
+          api="https://chromewebstore.googleapis.com"
+          item="publishers/$PUBLISHER_ID/items/$EXTENSION_ID"
+
+          token=$(curl --silent --show-error --fail-with-body https://oauth2.googleapis.com/token \
+            --data-urlencode "client_id=$CLIENT_ID" \
+            --data-urlencode "client_secret=$CLIENT_SECRET" \
+            --data-urlencode "refresh_token=$REFRESH_TOKEN" \
+            --data-urlencode "grant_type=refresh_token" | jq -r .access_token)
+          echo "::add-mask::$token"
+          auth="Authorization: Bearer $token"
+
+          upload=$(curl --silent --show-error --fail-with-body -X POST -H "$auth" \
+            -T "$zip_file" "$api/upload/v2/$item:upload")
+          echo "$upload" | jq .
+          state=$(echo "$upload" | jq -r .uploadState)
+          for _ in $(seq 1 30); do
+            [ "$state" = "IN_PROGRESS" ] || break
+            sleep 10
+            state=$(curl --silent --show-error --fail-with-body -H "$auth" "$api/v2/$item:fetchStatus" | jq -r .lastAsyncUploadState)
+          done
+          if [ "$state" != "SUCCEEDED" ]; then
+            echo "::error::Chrome Web Store upload state: $state"
+            exit 1
+          fi
+
+          curl --silent --show-error --fail-with-body -X POST -H "$auth" "$api/v2/$item:publish" | jq .

@@ -1,0 +1,18 @@
+  # runs once per deployment of a new server image, excluded from healthcheck.sh
+  ${PROJECT_LOWER}-${SERVICE_NAME}-${STACK_NAME}-migrations:
+    image: ghcr.io/${REPO_LOWER}-${SERVICE_NAME}-server:image-placeholder
+    networks:
+      - default
+    environment:
+      NODE_ENV: "production"
+__DB_ENV__
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: none
+    entrypoint: ["sh", "-c"]
+    command: ["__MIGRATIONS_CMD__"]
+__DB_SECRETS__
+

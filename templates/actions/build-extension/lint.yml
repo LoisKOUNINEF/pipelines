@@ -1,0 +1,6 @@
+# Mozilla's addons-linter: errors fail, warnings are only reported.
+- name: Lint (addons-linter)
+  if: inputs.browser == 'firefox'
+  shell: bash
+  run: |
+    __LINT_CMD__

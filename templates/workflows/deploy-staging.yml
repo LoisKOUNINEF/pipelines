@@ -1,0 +1,128 @@
+name: CI/CD __SERVICE_TITLE__ staging
+
+on:
+  push:
+    branches:
+      - staging
+__PATHS__
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Ensure tag is on staging
+        run: |
+          if [ "$(git branch --contains $GITHUB_SHA | grep 'staging')" = "" ]; then
+            echo "❌ Tag is not on staging. Aborting __SERVICE__ staging deployment."
+            exit 1
+          fi
+
+__TEST_STEP__
+      - name: Ensure scripts are executable
+        run: chmod +x .github/workflows/scripts/jobs/*.sh
+
+      - name: Lowercase the repo name and project name
+        run: .github/workflows/scripts/jobs/format-name.sh
+
+      - name: Set Git SHA in env
+        run: echo "GITHUB_SHA=${{ github.sha }}" >> $GITHUB_ENV
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish Docker image
+        run: .github/workflows/scripts/jobs/build-and-publish.sh
+        env:
+          SERVICE_NAME: "__SERVICE__"
+          DOCKERFILE: "__DOCKERFILE__"
+          GITHUB_SHA: ${{ github.sha }}
+
+  deploy:
+    needs: build-and-publish
+    runs-on: ubuntu-24.04
+    env:
+      SERVICE_NAME: "__SERVICE__"
+      STACK_NAME: "staging"
+      CLIENT_PORT: "__STAGING_PORT__"
+      DOMAIN_NAME: "__STAGING_DOMAIN__"
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Ensure scripts are executable
+        run: chmod -R +x .github/workflows/scripts/jobs/*.sh
+
+      - name: Lowercase the repo name and project name
+        run: .github/workflows/scripts/jobs/format-name.sh
+
+      - name: Set Git SHA in env
+        run: echo "GITHUB_SHA=${{ github.sha }}" >> $GITHUB_ENV
+
+      - name: Generate new stack file
+        run: .github/workflows/scripts/jobs/create-stack.sh
+
+      - name: Update stack file with latest tags
+        run: .github/workflows/scripts/jobs/add-tag.sh
+
+      - name: Copy updated stack file to VPS
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.SSH_PASS }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "new-${{ env.SERVICE_NAME }}-${{ env.STACK_NAME }}.yml"
+          target: "${{ env.PROJECT_LOWER }}"
+
+      - name: Copy deployment scripts to VPS
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.SSH_PASS }}
+          port: ${{ secrets.SSH_PORT }}
+          source: ".github/workflows/scripts/deployment/*.sh"
+          target: "~/${{ env.PROJECT_LOWER }}/scripts"
+          strip_components: 3
+
+      - name: Deploy to staging
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          DOCKER_AUTH: ${{ secrets.DOCKER_AUTH }}
+          REPO_LOWER: ${{ env.REPO_LOWER }}
+          PROJECT_LOWER: ${{ env.PROJECT_LOWER }}
+          STACK_NAME: ${{ env.STACK_NAME }}
+          SERVICE_NAME: ${{ env.SERVICE_NAME }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.SSH_PASS }}
+          port: ${{ secrets.SSH_PORT }}
+          envs: DOCKER_AUTH,REPO_LOWER,PROJECT_LOWER,STACK_NAME,SERVICE_NAME
+          script: |
+            cd $PROJECT_LOWER
+            chmod -R +x scripts/deployment/*.sh
+            ./scripts/deployment/deploy.sh

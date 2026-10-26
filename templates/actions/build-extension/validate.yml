@@ -1,0 +1,7 @@
+- name: Validate
+  shell: bash
+  env:
+    BROWSER: ${{ inputs.browser }}
+    TAG: ${{ inputs.tag }}
+  run: |
+    __VALIDATE_CMD__

@@ -1,0 +1,28 @@
+name: Delete and Recreate Staging Branch
+
+on:
+  workflow_run:
+    workflows:
+__WORKFLOWS__
+    types:
+      - completed
+    branches:
+      - main
+
+jobs:
+  update_staging:
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Ensure script is executable
+        run: chmod +x .github/workflows/scripts/jobs/recreate-staging.sh
+
+      - name: Delete and recreate staging branch
+        run: .github/workflows/scripts/jobs/recreate-staging.sh

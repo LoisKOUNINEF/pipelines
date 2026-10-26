@@ -1,0 +1,53 @@
+name: Publish __NAME__ Package To NPM
+
+on:
+  push:
+    tags:
+      - "__TAG_PREFIX__*"
+
+concurrency:
+  group: release-__NAME__
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build & Publish __NAME__ Package
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC) + provenance
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+__MAIN_CHECK__
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "__NODE_VERSION__"
+          cache: "npm"
+          registry-url: "https://registry.npmjs.org/"
+
+      - name: Ensure tag matches package.json version
+        run: |
+          PKG_VERSION="$(node -p "require('./__PACKAGE_JSON__').version")"
+          if [ "${GITHUB_REF_NAME#__TAG_PREFIX__}" != "$PKG_VERSION" ]; then
+            echo "❌ Tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+__CHECK_STEPS__
+      - name: List package contents
+        working-directory: __PACKAGE_DIR__
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        working-directory: __PACKAGE_DIR__
+        run: npm publish --access public

@@ -1,0 +1,5 @@
+- name: Source archive
+  if: inputs.tag != '' && matrix.browser == 'firefox'
+  env:
+    TAG: ${{ inputs.tag }}
+  run: git archive --format=zip --prefix="__NAME__-${TAG#v}/" -o "dist/__NAME__-source-${TAG#v}.zip" HEAD

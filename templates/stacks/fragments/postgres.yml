@@ -1,0 +1,27 @@
+  postgres:
+    image: postgres:16.15-alpine
+    networks:
+      - default
+    environment:
+      POSTGRES_USER_FILE: /run/secrets/${PROJECT_LOWER}_${SERVICE_NAME}_${STACK_NAME}_db_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/${PROJECT_LOWER}_${SERVICE_NAME}_${STACK_NAME}_db_password
+      POSTGRES_DB_FILE: /run/secrets/${PROJECT_LOWER}_${SERVICE_NAME}_${STACK_NAME}_db_name
+    volumes:
+      - ${PROJECT_LOWER}-${SERVICE_NAME}-${STACK_NAME}-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$(cat /run/secrets/${PROJECT_LOWER}_${SERVICE_NAME}_${STACK_NAME}_db_user) -d $$(cat /run/secrets/${PROJECT_LOWER}_${SERVICE_NAME}_${STACK_NAME}_db_name) || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+__DB_SECRETS__
+
