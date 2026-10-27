@@ -7,7 +7,7 @@ if [[ -z "$STACK_NAME" ]]; then
   exit 1
 fi
 
-POSTGRES_SERVICE="${PROJECT_LOWER}-${SERVICE_NAME}-${STACK_NAME}_postgres"
+POSTGRES_SERVICE="${APP_LOWER}-${STACK_NAME}_postgres"
 if ! docker service ls --format "{{.Name}}" | grep -q "$POSTGRES_SERVICE"; then
   echo "PostgreSQL service '$POSTGRES_SERVICE' is not running."
   exit 1
@@ -19,9 +19,9 @@ read_secret() {
   docker exec "$POSTGRES_CONTAINER" cat "/run/secrets/$1" 2>/dev/null || true
 }
 
-PG_USER=$(read_secret "${PROJECT_LOWER}_${SERVICE_NAME}_${STACK_NAME}_db_user")
-PG_PASSWORD=$(read_secret "${PROJECT_LOWER}_${SERVICE_NAME}_${STACK_NAME}_db_password")
-DB_NAME=$(read_secret "${PROJECT_LOWER}_${SERVICE_NAME}_${STACK_NAME}_db_name")
+PG_USER=$(read_secret "${APP_SNAKE}_${STACK_NAME}_db_user")
+PG_PASSWORD=$(read_secret "${APP_SNAKE}_${STACK_NAME}_db_password")
+DB_NAME=$(read_secret "${APP_SNAKE}_${STACK_NAME}_db_name")
 # Passed by the deploy workflow (ENCRYPTION_PASSWORD secret), or mounted as a swarm secret
 ENCRYPTION_PASSWORD="${ENCRYPTION_PASSWORD:-$(read_secret encryption_password)}"
 

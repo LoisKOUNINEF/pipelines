@@ -8,7 +8,7 @@ backup_database() {
   rm -f "$marker"
 
   # first deployment: no database to back up yet
-  if ! docker service ls --format "{{.Name}}" | grep -qx "$PROJECT_LOWER-$SERVICE_NAME-${STACK_NAME}_postgres"; then
+  if ! docker service ls --format "{{.Name}}" | grep -qx "$APP_LOWER-${STACK_NAME}_postgres"; then
     echo "No $SERVICE_NAME-$STACK_NAME database running, skipping backup"
     return 0
   fi

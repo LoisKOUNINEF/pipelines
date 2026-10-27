@@ -7,7 +7,7 @@ healthcheck() {
 
   while true; do
     all_healthy=true
-    services=$(docker service ls --format "{{.Name}}" --filter "name="$PROJECT_LOWER"-"$SERVICE_NAME"-"$STACK_NAME"")
+    services=$(docker service ls --format "{{.Name}}" --filter "name="$APP_LOWER"-"$STACK_NAME"")
 
     for service in $services; do
       # migrations run once and exit, they're never "running"

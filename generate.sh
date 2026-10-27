@@ -309,6 +309,7 @@ fill() {
       -e "s|__SCP_SOURCES__|$(sed_escape "${scp_sources:-}")|g" \
       -e "s|__CHMOD_DB__|$(sed_escape "${chmod_db:-}")|g" \
       -e "s|__COMPONENTS_JSON__|$(sed_escape "${components_json:-}")|g" \
+      -e "s|__APP_MODE__|$(sed_escape "$mode")|g" \
       -e "s|__TEST_BRANCH__|$(sed_escape "$pipeline_branch")|g"
 }
 
@@ -498,19 +499,6 @@ fi
 
 # --- shared files ---
 
-for src in "$TEMPLATES"/scripts/jobs/*.sh "$TEMPLATES"/scripts/deployment/*.sh; do
-  copy_shared "$src" "$workflows_dir/scripts/${src#"$TEMPLATES"/scripts/}"
-done
-if [ -n "$db" ]; then
-  for src in "$TEMPLATES"/scripts/db-backup/*.sh; do
-    copy_shared "$src" "$workflows_dir/scripts/${src#"$TEMPLATES"/scripts/}"
-  done
-fi
-if [ "$type" = "frontend" ]; then
-  copy_shared "$TEMPLATES/stacks/stack.yml" "$workflows_dir/stacks/stack.yml"
-fi
-copy_shared "$TEMPLATES/docs/WORKFLOWS.md" "$github_dir/docs/WORKFLOWS.md"
-
 # recreate-staging.yml is derived from every staging-pipeline app, so it's always rebuilt
 production_names=()
 for f in "$workflows_dir"/deploy-production.yml "$workflows_dir"/deploy-production-*.yml; do
@@ -519,17 +507,60 @@ for f in "$workflows_dir"/deploy-production.yml "$workflows_dir"/deploy-producti
   [ -n "$name" ] && production_names+=("$name")
 done
 
-if [ ${#production_names[@]} -gt 0 ]; then
+# shared files are kept only while one of the repo's apps (this one included) uses them
+deploy_workflows=()
+for f in "$workflows_dir"/deploy*.yml; do
+  [ -f "$f" ] && deploy_workflows+=("$f")
+done
+
+any_workflow() {
+  [ ${#deploy_workflows[@]} -gt 0 ] && grep -qF -- "$1" "${deploy_workflows[@]}"
+}
+
+[ ${#production_names[@]} -gt 0 ] && has_staging=true || has_staging=false
+any_workflow "get-changed-components.sh" && uses_components=true || uses_components=false
+# only backend/fullstack workflows set SERVER_REPLICAS
+any_workflow "SERVER_REPLICAS:" && uses_stack=true || uses_stack=false
+any_workflow 'DB: "postgres"' && uses_db=true || uses_db=false
+uses_shared_stack=false
+if [ ${#deploy_workflows[@]} -gt 0 ] && [ -n "$(grep -LF "SERVER_REPLICAS:" "${deploy_workflows[@]}")" ]; then
+  uses_shared_stack=true
+fi
+
+# Copies a shared file when $1 is true, otherwise removes a previously generated one.
+shared_if() {
+  local used="$1" src="$2" dest="$3"
+
+  if $used; then
+    copy_shared "$src" "$dest"
+  elif [ -e "$dest" ]; then
+    rm "$dest"
+    rmdir "$(dirname "$dest")" 2>/dev/null || true
+    removed+=(".github/${dest#"$github_dir"/}")
+  fi
+}
+
+for src in "$TEMPLATES"/scripts/jobs/*.sh "$TEMPLATES"/scripts/deployment/*.sh "$TEMPLATES"/scripts/db-backup/*.sh; do
+  script="${src#"$TEMPLATES"/scripts/}"
+  case "$script" in
+    deployment/remove-staging.sh|jobs/recreate-staging.sh) used=$has_staging ;;
+    jobs/get-changed-components.sh) used=$uses_components ;;
+    deployment/scale-backend.sh) used=$uses_stack ;;
+    db-backup/*) used=$uses_db ;;
+    *) used=true ;;
+  esac
+  shared_if "$used" "$src" "$workflows_dir/scripts/$script"
+done
+shared_if "$uses_shared_stack" "$TEMPLATES/stacks/stack.yml" "$workflows_dir/stacks/stack.yml"
+shared_if "$has_staging" "$TEMPLATES/workflows/restrict-main-pr.yml" "$workflows_dir/restrict-main-pr.yml"
+copy_shared "$TEMPLATES/docs/WORKFLOWS.md" "$github_dir/docs/WORKFLOWS.md"
+
+if $has_staging; then
   export BLOCK_WORKFLOWS="$(printf '      - "%s"\n' "${production_names[@]}")"
   render "$TEMPLATES/workflows/recreate-staging.yml" "$workflows_dir/recreate-staging.yml"
-  copy_shared "$TEMPLATES/workflows/restrict-main-pr.yml" "$workflows_dir/restrict-main-pr.yml"
-else
-  for f in recreate-staging.yml restrict-main-pr.yml; do
-    if [ -e "$workflows_dir/$f" ]; then
-      rm "$workflows_dir/$f"
-      removed+=(".github/workflows/$f")
-    fi
-  done
+elif [ -e "$workflows_dir/recreate-staging.yml" ]; then
+  rm "$workflows_dir/recreate-staging.yml"
+  removed+=(".github/workflows/recreate-staging.yml")
 fi
 
 # --- summary ---
@@ -574,12 +605,14 @@ if [ "$pipeline" = "staging" ]; then
 fi
 if [ -n "$db" ]; then
   project="$(basename "$(dirname "$github_dir")" | tr '[:upper:]' '[:lower:]' | tr '_' '-')"
+  # solo: the repo is the app, so secret names drop the service (see format-name.sh)
+  [ "$mode" = "solo" ] && secret_prefix="$project" || secret_prefix="${project}_$service"
   stacks="production"
   [ "$pipeline" = "staging" ] && stacks="staging production"
   echo "  - VPS Docker secrets, <project> = lowercased GitHub repo name (here assumed '$project'):"
   for stack in $stacks; do
     for secret in db_user db_password db_name; do
-      echo "      echo \"...\" | docker secret create ${project}_${service}_${stack}_${secret} -"
+      echo "      echo \"...\" | docker secret create ${secret_prefix}_${stack}_${secret} -"
     done
   done
   echo "  - VPS: /backups writable by the SSH user (or set BACKUP_DIR), backups are kept 7 days"

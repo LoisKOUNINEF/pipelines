@@ -28,7 +28,7 @@ archive() {
 deploy_previous() {
   if [ ! -f prev-"$SERVICE_NAME"-"$STACK_NAME".yml ]; then
     echo "No previous version for "$SERVICE_NAME"-"$STACK_NAME", removing the failed stack..." >&2
-    docker stack rm "$PROJECT_LOWER"-"$SERVICE_NAME"-"$STACK_NAME"
+    docker stack rm "$APP_LOWER"-"$STACK_NAME"
     return
   fi
 
@@ -36,7 +36,7 @@ deploy_previous() {
 
   mv prev-"$SERVICE_NAME"-"$STACK_NAME".yml "$SERVICE_NAME"-"$STACK_NAME".yml
 
-  docker stack deploy --with-registry-auth -c "$SERVICE_NAME"-"$STACK_NAME".yml "$PROJECT_LOWER"-"$SERVICE_NAME"-"$STACK_NAME"
+  docker stack deploy --with-registry-auth -c "$SERVICE_NAME"-"$STACK_NAME".yml "$APP_LOWER"-"$STACK_NAME"
 }
 
 # DB=postgres: restores the backup deploy.sh made before this deployment (undoes its migrations)

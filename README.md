@@ -20,7 +20,7 @@ Run `./generate.sh --help` for every option.
 ./generate.sh --target ../my-app --mode solo --domain my-app.com --port 8080 --test-cmd "npm test"
 ```
 
-Writes `deploy-staging.yml` + `deploy-production.yml` (or `deploy.yml` with `--pipeline direct`). The workflows run on every push to their branch. Dockerfile defaults to `tools/docker/Dockerfile`.
+Writes `deploy-staging.yml` + `deploy-production.yml` (or `deploy.yml` with `--pipeline direct`). The workflows run on every push to their branch. Dockerfile defaults to `tools/docker/Dockerfile`. The repo is the app: the stack is `<repo>-<stack>` and the image `ghcr.io/<owner>/<repo>` (`-client`/`-server` for fullstack), `--service` only names the workflows and the VPS stack files.
 
 ### Monorepo (run once per app)
 
@@ -31,7 +31,7 @@ Writes `deploy-staging.yml` + `deploy-production.yml` (or `deploy.yml` with `--p
   --domain todo.example.com --port 9092
 ```
 
-Writes `deploy-staging-<service>.yml` + `deploy-production-<service>.yml` (or `deploy-<service>.yml`). Each workflow only runs when `<app-dir>/**` (default `apps/<service>`), an `--extra-path` or the workflow file itself changes. Dockerfile defaults to `<app-dir>/tools/docker/Dockerfile`.
+Writes `deploy-staging-<service>.yml` + `deploy-production-<service>.yml` (or `deploy-<service>.yml`). Names include the service: stack `<repo>-<service>-<stack>`, image `ghcr.io/<owner>/<repo>-<service>`. Each workflow only runs when `<app-dir>/**` (default `apps/<service>`), an `--extra-path` or the workflow file itself changes. Dockerfile defaults to `<app-dir>/tools/docker/Dockerfile`.
 
 ## App types (`--type`)
 
@@ -67,6 +67,7 @@ Both clean old ghcr.io image versions of the app (`--keep-images`, default 3).
 - An app's files (workflows, PR test workflow, `stacks/<service>.yml`) are never overwritten without `--force`. With `--force`, the app's previous files are removed first, so this is also how an app switches pipeline or type.
 - Shared files (`scripts/`, `stacks/stack.yml`, `docs/WORKFLOWS.md`, `restrict-main-pr.yml`) are kept when present, refreshed with `--force`. Kept files that differ from the kit are listed: re-run with `--force` to update them (e.g. a repo generated before backend/fullstack support needs the newer `healthcheck.sh`).
 - `recreate-staging.yml` is rebuilt on every run from all `deploy-production*.yml` files, and removed (with `restrict-main-pr.yml`) when no app uses the staging pipeline anymore.
+- Shared scripts and stacks are only generated while an app in the repo uses them (staging pipeline, backend/fullstack, database, frontend), and removed once none does. See `docs/WORKFLOWS.md` ("Generated scripts") for the list.
 - A warning is printed when a port is already used by another app's workflow.
 
 ## Packages (`generate-package.sh`)

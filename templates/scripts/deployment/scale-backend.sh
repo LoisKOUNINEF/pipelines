@@ -2,7 +2,7 @@
 
 scale_backend() {
   local scale_value="$SERVER_REPLICAS"
-  local stack="$PROJECT_LOWER-$SERVICE_NAME-$STACK_NAME"
+  local stack="$APP_LOWER-$STACK_NAME"
 
   echo "Scaling backend to $scale_value."
 

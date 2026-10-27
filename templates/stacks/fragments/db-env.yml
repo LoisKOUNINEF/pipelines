@@ -1,5 +1,5 @@
       DB_HOST: "postgres"
       DB_PORT: "5432"
-      DB_USER_FILE: /run/secrets/${PROJECT_LOWER}_${SERVICE_NAME}_${STACK_NAME}_db_user
-      DB_PASSWORD_FILE: /run/secrets/${PROJECT_LOWER}_${SERVICE_NAME}_${STACK_NAME}_db_password
-      DB_NAME_FILE: /run/secrets/${PROJECT_LOWER}_${SERVICE_NAME}_${STACK_NAME}_db_name
+      DB_USER_FILE: /run/secrets/${APP_SNAKE}_${STACK_NAME}_db_user
+      DB_PASSWORD_FILE: /run/secrets/${APP_SNAKE}_${STACK_NAME}_db_password
+      DB_NAME_FILE: /run/secrets/${APP_SNAKE}_${STACK_NAME}_db_name

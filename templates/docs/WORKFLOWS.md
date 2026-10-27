@@ -10,19 +10,31 @@
 - `ENCRYPTION_PASSWORD` secret (apps with a database): encrypts/decrypts the database backups. Changing it makes older backups unreadable.
 
 - `.github/workflows/scripts/jobs/create-stack.sh` generates a new .yaml file with `envsubst` from `.github/workflows/stacks/<service>.yml` (backend/fullstack apps) or the shared `.github/workflows/stacks/stack.yml` (frontend apps), and ENV variables :
-    - ENV variables : `PROJECT_LOWER`, `SERVICE_NAME`, `STACK_NAME`, `REPO_LOWER`, `DOMAIN_NAME`, `CLIENT_PORT`, `SERVER_PORT`. (*`REPO_LOWER` and `PROJECT_LOWER`* are set by `format-name.sh`).
+    - ENV variables : `APP_LOWER`, `IMAGE_LOWER`, `APP_SNAKE`, `PROJECT_LOWER`, `REPO_LOWER`, `SERVICE_NAME`, `STACK_NAME`, `DOMAIN_NAME`, `CLIENT_PORT`, `SERVER_PORT`. (*`APP_LOWER`, `IMAGE_LOWER`, `APP_SNAKE`, `REPO_LOWER` and `PROJECT_LOWER`* are set by `format-name.sh`, see "Naming").
     - Any other `$NAME` / `${NAME}` in a stack file is replaced too (by an empty string if unset), even after `$$`. Only `$` not followed by a name survives, e.g. docker stack's `$$(…)` and `$${1}` escapes.
 
 - VPS prerequisites: Docker Swarm initialised, Traefik running on the external `traefik-public` overlay network with a `letsencrypt` cert resolver and a `websecure` entrypoint. Each app's container must answer `GET /health` on its port (Swarm healthcheck, `wget` inside the container).
 
+## Naming
+
+`format-name.sh` derives the names from the repo (lowercased, `_` → `-`) and, in monorepos, the service:
+
+| | solo | monorepo |
+|---|---|---|
+| `APP_LOWER` (stack `<APP_LOWER>-<stack>`, ghcr.io package) | `<repo>` | `<repo>-<service>` |
+| `IMAGE_LOWER` (image `ghcr.io/<IMAGE_LOWER>[-client\|-server]`) | `<owner>/<repo>` | `<owner>/<repo>-<service>` |
+| `APP_SNAKE` (DB secrets `<APP_SNAKE>_<stack>_db_*`) | `<repo>` | `<repo>_<service>` |
+
+`SERVICE_NAME` still names the stack files on the VPS (`<service>-<stack>.yml`, in `~/<repo>`).
+
 ## App types
 
 - **frontend** — one container per stack, routed at `/` (shared `stacks/stack.yml`).
-- **backend** — `<project>-<service>-<stack>-server`, routed at `/` (`stacks/<service>.yml`).
-- **fullstack** — `-client` routed at `/` and `-server` routed at its path prefixes (e.g. `/api`), in one stack (`stacks/<service>.yml`). Images: `ghcr.io/<owner>/<repo>-<service>-client|server`.
+- **backend** — `<APP_LOWER>-<stack>-server`, routed at `/` (`stacks/<service>.yml`).
+- **fullstack** — `-client` routed at `/` and `-server` routed at its path prefixes (e.g. `/api`), in one stack (`stacks/<service>.yml`). Images: `ghcr.io/<IMAGE_LOWER>-client|server`.
 - Backend/fullstack options:
-    - **Database** (`DB=postgres`): `postgres` service, its data in the `<project>-<service>-<stack>-pgdata` volume. Credentials are external Docker secrets, to create on the VPS for each stack:
-      `echo "..." | docker secret create <project>_<service>_<stack>_db_user -` (same for `_db_password`, `_db_name`). The server gets `DB_HOST`, `DB_PORT`, `DB_USER_FILE`, `DB_PASSWORD_FILE`, `DB_NAME_FILE`.
+    - **Database** (`DB=postgres`): `postgres` service, its data in the `<APP_LOWER>-<stack>-pgdata` volume. Credentials are external Docker secrets, to create on the VPS for each stack:
+      `echo "..." | docker secret create <APP_SNAKE>_<stack>_db_user -` (same for `_db_password`, `_db_name`). The server gets `DB_HOST`, `DB_PORT`, `DB_USER_FILE`, `DB_PASSWORD_FILE`, `DB_NAME_FILE`.
     - **Migrations**: `-migrations` service running once per deployment in the server image (`sh -c <cmd>`), excluded from the healthcheck.
     - **Server replicas** (`SERVER_REPLICAS`): the server is deployed with 1 replica, then scaled up once the stack is healthy.
 - App-specific env variables and secrets go in `stacks/<service>.yml`.
@@ -35,6 +47,18 @@
     - **Pull requests to `main` must come from `staging`** (`restrict-main-pr.yml`)
     - A `staging` workflow must have been completed beforehand.
 
+## Generated scripts
+
+Shared scripts and stacks only exist while one of the repo's apps needs them; re-running the generator removes the ones no app uses anymore:
+
+| Files | Present when an app… |
+|---|---|
+| `scripts/deployment/remove-staging.sh`, `scripts/jobs/recreate-staging.sh`, `recreate-staging.yml`, `restrict-main-pr.yml` | uses the staging pipeline |
+| `scripts/jobs/get-changed-components.sh` | is fullstack with the staging pipeline |
+| `scripts/deployment/scale-backend.sh`, `stacks/<service>.yml` | is backend/fullstack |
+| `scripts/db-backup/*.sh` | has a database (`DB=postgres`) |
+| `stacks/stack.yml` | is frontend |
+
 ## Staging workflow (`staging` branch): 
 
 * **Staging STACK_NAME must be named "staging".** 
@@ -45,9 +69,10 @@
 * Copy generated YAML file to VPS
 * Pull app's image
 * Deploy ( Docker Swarm / Traefik )
-* *Note : Staging STACK_NAME must be named "staging".* 
 
-## Production workflow (`main` branch):
+## Production workflow (`main` branch, staging pipeline):
+
+Uploads only the stack file: it runs the deployment scripts uploaded by the last staging run.
 
 * Copy image tags from `<service>-staging.yml` file.
 * Deploy ( Docker Swarm / Traefik )
@@ -82,7 +107,7 @@ Uses `DOCKER_AUTH` GitHub secret (see top of this file). Strips CR/LF/spaces fro
 
 - docker-logout.sh
 
-Logs out of ghcr.io, called as part of `post-job.sh`.
+Logs out of ghcr.io, called by `post-job.sh`, `rollback.sh`, and `stack-deploy.sh` when the pull fails.
 
 - stack-deploy.sh
 
@@ -100,7 +125,7 @@ Replaces `image-placeholder` in new .yml file.
 
 - healthcheck.sh
 
-Polls the replica counts of every service of the stack (`$PROJECT_LOWER-$SERVICE_NAME-$STACK_NAME*`, except `*-migrations`) every 10s.                      
+Polls the replica counts of every service of the stack (`$APP_LOWER-$STACK_NAME*`, except `*-migrations`) every 10s.                      
 Prints the last 3 tasks of an unhealthy service (`docker service ps --no-trunc`), as tasks that never started have no logs.                  
 Calls `rollback.sh` and exits 1 if not all replicas are healthy after `HEALTHCHECK_TIMEOUT` seconds (**90** by default, 150 for backend/fullstack apps).
 
@@ -122,17 +147,17 @@ Logs available images.
 
 - remove-old-images.sh
 
-Prunes old ghcr.io images of the stack from local Docker (sorted by creation date, keeping the most recent 3 per image), separately from the GH-Action-based `delete-package-versions` cleanup on ghcr.io (which is configured to keep the newest 3).
+Prunes old ghcr.io images of the stack from local Docker (sorted by creation date, keeping the most recent 3 per image), separately from the GH-Action-based `delete-package-versions` cleanup on ghcr.io (keeps the newest `--keep-images`, default 3).
 
-- remove-staging.sh
+- remove-staging.sh *(staging pipeline)*
 
 Removes the staging Docker Swarm stack (its database volume is kept).
 
-- scale-backend.sh
+- scale-backend.sh *(backend/fullstack)*
 
 Scales the `-server` service to `SERVER_REPLICAS`.
 
-### Database backup scripts (Ubuntu server, `scripts/db-backup/`)
+### Database backup scripts (Ubuntu server, `scripts/db-backup/`, apps with a database)
 
 - backup.sh
 
@@ -140,13 +165,13 @@ Scales the `-server` service to `SERVER_REPLICAS`.
 
 - restore.sh
 
-Restores `BACKUP_FILE` (default: the most recent backup) into the stack's running database. Manual use: `cd <project> && PROJECT_LOWER=… SERVICE_NAME=… STACK_NAME=… ENCRYPTION_PASSWORD=… BACKUP_FILE=… ./scripts/db-backup/restore.sh`.
+Restores `BACKUP_FILE` (default: the most recent backup) into the stack's running database. Manual use: `cd <project> && APP_LOWER=… APP_SNAKE=… SERVICE_NAME=… STACK_NAME=… ENCRYPTION_PASSWORD=… BACKUP_FILE=… ./scripts/db-backup/restore.sh`.
 
 ### Jobs scripts (run inside GitHub Actions, not on the VPS)
 
-- `format-name.sh` — derives `PROJECT_LOWER`/`REPO_LOWER` from the repo name.
+- `format-name.sh` — derives `PROJECT_LOWER`/`REPO_LOWER` from the repo name, and `APP_LOWER`/`IMAGE_LOWER`/`APP_SNAKE` from it, `SERVICE_NAME` and `APP_MODE` (`solo|monorepo`, see "Naming").
 - `create-stack.sh` — see above.
 - `add-tag.sh` — sets the new tag on the built image(s) in the stack file; other images keep `image-placeholder`.
 - `build-and-publish.sh` — builds (context = repo root) and publishes the Docker image to ghcr.io: from `DOCKERFILE` (frontend) or one image per `COMPONENTS` entry (`name:dockerfile`, backend/fullstack).
-- `get-changed-components.sh` — fullstack staging builds: keeps the components whose directory changed since `origin/main`, all of them when a shared path (`SHARED_PATHS`) changed, nothing matched (first deployment, workflow-only change) or there's no `origin/main`. Unchanged images reuse their previous tag (`replace-placeholders.sh`).
-- `recreate-staging.sh` — the script backing the `recreate-staging.yml` workflow described above.
+- `get-changed-components.sh` *(fullstack staging)* — fullstack staging builds: keeps the components whose directory changed since `origin/main`, all of them when a shared path (`SHARED_PATHS`) changed, nothing matched (first deployment, workflow-only change) or there's no `origin/main`. Unchanged images reuse their previous tag (`replace-placeholders.sh`).
+- `recreate-staging.sh` *(staging pipeline)* — the script backing the `recreate-staging.yml` workflow described above.

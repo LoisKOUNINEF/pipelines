@@ -32,6 +32,9 @@ __TEST_STEP__
 
       - name: Lowercase the repo name and project name
         run: .github/workflows/scripts/jobs/format-name.sh
+        env:
+          SERVICE_NAME: "__SERVICE__"
+          APP_MODE: "__APP_MODE__"
 
       - name: Set Git SHA in env
         run: echo "GITHUB_SHA=${{ github.sha }}" >> $GITHUB_ENV
@@ -74,6 +77,9 @@ __TEST_STEP__
 
       - name: Lowercase the repo name and project name
         run: .github/workflows/scripts/jobs/format-name.sh
+        env:
+          SERVICE_NAME: "__SERVICE__"
+          APP_MODE: "__APP_MODE__"
 
       - name: Set Git SHA in env
         run: echo "GITHUB_SHA=${{ github.sha }}" >> $GITHUB_ENV
@@ -113,6 +119,9 @@ __TEST_STEP__
           DOCKER_AUTH: ${{ secrets.DOCKER_AUTH }}
           REPO_LOWER: ${{ env.REPO_LOWER }}
           PROJECT_LOWER: ${{ env.PROJECT_LOWER }}
+          APP_LOWER: ${{ env.APP_LOWER }}
+          IMAGE_LOWER: ${{ env.IMAGE_LOWER }}
+          APP_SNAKE: ${{ env.APP_SNAKE }}
           STACK_NAME: ${{ env.STACK_NAME }}
           SERVICE_NAME: ${{ env.SERVICE_NAME }}
           PIPELINE: "direct"
@@ -122,7 +131,7 @@ __TEST_STEP__
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           passphrase: ${{ secrets.SSH_PASS }}
           port: ${{ secrets.SSH_PORT }}
-          envs: DOCKER_AUTH,REPO_LOWER,PROJECT_LOWER,STACK_NAME,SERVICE_NAME,PIPELINE
+          envs: DOCKER_AUTH,REPO_LOWER,PROJECT_LOWER,APP_LOWER,IMAGE_LOWER,APP_SNAKE,STACK_NAME,SERVICE_NAME,PIPELINE
           script: |
             cd $PROJECT_LOWER
             chmod -R +x scripts/deployment/*.sh
@@ -144,11 +153,14 @@ __TEST_STEP__
 
       - name: Lowercase the repo name and project name
         run: .github/workflows/scripts/jobs/format-name.sh
+        env:
+          SERVICE_NAME: "__SERVICE__"
+          APP_MODE: "__APP_MODE__"
 
       - name: Delete old container images
         uses: actions/delete-package-versions@v5
         with:
-          package-name: ${{ env.PROJECT_LOWER }}-__SERVICE__
+          package-name: ${{ env.APP_LOWER }}
           package-type: 'container'
           min-versions-to-keep: __KEEP_IMAGES__
           token: ${{ secrets.GITHUB_TOKEN }}

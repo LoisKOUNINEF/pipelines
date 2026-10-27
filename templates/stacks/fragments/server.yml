@@ -1,5 +1,5 @@
-  ${PROJECT_LOWER}-${SERVICE_NAME}-${STACK_NAME}-server:
-    image: ghcr.io/${REPO_LOWER}-${SERVICE_NAME}-server:image-placeholder
+  ${APP_LOWER}-${STACK_NAME}-server:
+    image: ghcr.io/${IMAGE_LOWER}-server:image-placeholder
     networks:
       - traefik-public
       - default
@@ -26,12 +26,12 @@ __DB_ENV__
         window: 120s
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.${PROJECT_LOWER}-${SERVICE_NAME}-${STACK_NAME}-server.rule=(Host(`${DOMAIN_NAME}`) || Host(`www.${DOMAIN_NAME}`)) && __SERVER_RULE__"
-        - "traefik.http.routers.${PROJECT_LOWER}-${SERVICE_NAME}-${STACK_NAME}-server.entrypoints=websecure"
-        - "traefik.http.routers.${PROJECT_LOWER}-${SERVICE_NAME}-${STACK_NAME}-server.tls.certresolver=letsencrypt"
-        - "traefik.http.routers.${PROJECT_LOWER}-${SERVICE_NAME}-${STACK_NAME}-server.service=${PROJECT_LOWER}-${SERVICE_NAME}-${STACK_NAME}-server"
+        - "traefik.http.routers.${APP_LOWER}-${STACK_NAME}-server.rule=(Host(`${DOMAIN_NAME}`) || Host(`www.${DOMAIN_NAME}`)) && __SERVER_RULE__"
+        - "traefik.http.routers.${APP_LOWER}-${STACK_NAME}-server.entrypoints=websecure"
+        - "traefik.http.routers.${APP_LOWER}-${STACK_NAME}-server.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.${APP_LOWER}-${STACK_NAME}-server.service=${APP_LOWER}-${STACK_NAME}-server"
 __MIDDLEWARE_LABELS__
-        - "traefik.http.routers.${PROJECT_LOWER}-${SERVICE_NAME}-${STACK_NAME}-server.middlewares=hsts-header@swarm,${PROJECT_LOWER}-${SERVICE_NAME}-${STACK_NAME}-www@swarm"
-        - "traefik.http.services.${PROJECT_LOWER}-${SERVICE_NAME}-${STACK_NAME}-server.loadbalancer.server.port=${SERVER_PORT}"
+        - "traefik.http.routers.${APP_LOWER}-${STACK_NAME}-server.middlewares=hsts-header@swarm,${APP_LOWER}-${STACK_NAME}-www@swarm"
+        - "traefik.http.services.${APP_LOWER}-${STACK_NAME}-server.loadbalancer.server.port=${SERVER_PORT}"
 __DB_SECRETS__
 

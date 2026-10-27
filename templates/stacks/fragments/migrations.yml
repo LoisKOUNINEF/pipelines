@@ -1,6 +1,6 @@
   # runs once per deployment of a new server image, excluded from healthcheck.sh
-  ${PROJECT_LOWER}-${SERVICE_NAME}-${STACK_NAME}-migrations:
-    image: ghcr.io/${REPO_LOWER}-${SERVICE_NAME}-server:image-placeholder
+  ${APP_LOWER}-${STACK_NAME}-migrations:
+    image: ghcr.io/${IMAGE_LOWER}-server:image-placeholder
     networks:
       - default
     environment:

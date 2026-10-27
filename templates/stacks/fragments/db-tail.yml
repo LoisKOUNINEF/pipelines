@@ -1,11 +1,11 @@
 
 volumes:
-  ${PROJECT_LOWER}-${SERVICE_NAME}-${STACK_NAME}-pgdata:
+  ${APP_LOWER}-${STACK_NAME}-pgdata:
 
 secrets:
-  ${PROJECT_LOWER}_${SERVICE_NAME}_${STACK_NAME}_db_user:
+  ${APP_SNAKE}_${STACK_NAME}_db_user:
     external: true
-  ${PROJECT_LOWER}_${SERVICE_NAME}_${STACK_NAME}_db_password:
+  ${APP_SNAKE}_${STACK_NAME}_db_password:
     external: true
-  ${PROJECT_LOWER}_${SERVICE_NAME}_${STACK_NAME}_db_name:
+  ${APP_SNAKE}_${STACK_NAME}_db_name:
     external: true
