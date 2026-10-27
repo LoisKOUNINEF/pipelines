@@ -245,6 +245,10 @@ validate_service() {
   [[ "$service" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || fail "--service must match [a-z0-9-] (no leading/trailing dash)"
   # stacks/<service>.yml would replace the shared stacks/stack.yml
   [ "$service" != "stack" ] || fail "--service can't be 'stack'"
+  # deploy-<service>.yml would read as another app's deploy-staging-*/deploy-production-*.yml
+  case "$service" in
+    staging-*|production-*) fail "--service can't start with 'staging-' or 'production-'" ;;
+  esac
 }
 
 # Checks the port, domain, image count and Node version values.
@@ -669,9 +673,10 @@ print_next_steps() {
   cat <<EOF
 
 Next steps:
-  - GitHub secrets: SSH_HOST, SSH_USER, SSH_PRIVATE_KEY, SSH_PASS, SSH_PORT, DOCKER_AUTH${db:+, ENCRYPTION_PASSWORD (database backups)}
+  - GitHub secrets: SSH_HOST, SSH_USER, SSH_PRIVATE_KEY, SSH_PASS, SSH_PORT, SSH_FINGERPRINT, DOCKER_AUTH${db:+, ENCRYPTION_PASSWORD (database backups)}
     (DOCKER_AUTH = printf '%s' 'username:PAT' | base64 | tr -d '\n', classic PAT with read:packages only)
-  - VPS: Docker Swarm + Traefik on the external 'traefik-public' network
+    (SSH_FINGERPRINT = the "SHA256:…" of ssh-keyscan -t ed25519 -p <port> <host> | ssh-keygen -lf -)
+  - VPS: Docker Swarm + Traefik on the external 'traefik-public' network, flock (util-linux) to queue the deploys
   - $health GET /health on their port (healthcheck uses wget)
   - DNS: $domain and www.$domain${staging_domain:+, $staging_domain and www.$staging_domain} → VPS
 EOF

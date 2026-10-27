@@ -8,6 +8,11 @@ __PATHS__
 
 jobs:
   deploy:
+    # one deploy per app and stack at a time (a newer push replaces a pending one),
+    # the VPS lock in the deploy step serializes the other apps
+    concurrency:
+      group: deploy-${{ github.workflow }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     env:
       SERVICE_NAME: "__SERVICE__"
@@ -42,18 +47,19 @@ jobs:
         run: .github/workflows/scripts/jobs/create-stack.sh
 
       - name: Copy stack file to VPS
-        uses: appleboy/scp-action@v1.0.0
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           passphrase: ${{ secrets.SSH_PASS }}
           port: ${{ secrets.SSH_PORT }}
+          fingerprint: ${{ secrets.SSH_FINGERPRINT }}
           source: "new-${{ env.SERVICE_NAME }}-${{ env.STACK_NAME }}.yml"
           target: "${{ env.PROJECT_LOWER }}"
 
       - name: Deploy to production
-        uses: appleboy/ssh-action@v1.2.5
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           DOCKER_AUTH: ${{ secrets.DOCKER_AUTH }}
           REPO_LOWER: ${{ env.REPO_LOWER }}
@@ -69,10 +75,12 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           passphrase: ${{ secrets.SSH_PASS }}
           port: ${{ secrets.SSH_PORT }}
+          fingerprint: ${{ secrets.SSH_FINGERPRINT }}
           envs: DOCKER_AUTH,REPO_LOWER,PROJECT_LOWER,APP_LOWER,IMAGE_LOWER,APP_SNAKE,STACK_NAME,SERVICE_NAME
           script: |
             cd $PROJECT_LOWER
-            ./scripts/deployment/deploy.sh && ./scripts/deployment/remove-staging.sh
+            # serializes the deploys of every app on the VPS (they share ~/.docker/config.json)
+            flock -w 600 ~/.deploy.lock ./scripts/deployment/deploy.sh && ./scripts/deployment/remove-staging.sh
 
   delete-old-images:
     runs-on: ubuntu-24.04

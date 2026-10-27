@@ -57,7 +57,7 @@ Backend/fullstack apps get their own `stacks/<service>.yml`: add app-specific en
 
 ## Pipelines
 
-- **staging** (default): pushes to `staging` test, build and deploy to `--staging-domain` / `--staging-port` (default `staging.<domain>` / `<port>+1`). Pushes to `main` redeploy the staging image tags to production (no rebuild), then remove the staging stack. Also generates `restrict-main-pr.yml` (PRs to `main` must come from `staging`) and `recreate-staging.yml` (recreates `staging` from `main` after a production deploy).
+- **staging** (default): pushes to `staging` test, build and deploy to `--staging-domain` / `--staging-port` (default `staging.<domain>` / `<port>+1`). Pushes to `main` redeploy the staging image tags to production (no rebuild), then remove the staging stack. Also generates `restrict-main-pr.yml` (PRs to `main` must come from `staging`) and `recreate-staging.yml` (resets `staging` to `main` after a successful production deploy, unless `staging` has changes `main` doesn't have).
 - **direct**: pushes to `main` test, build and deploy to production.
 
 Both clean old ghcr.io image versions of the app (`--keep-images`, default 3).
@@ -118,8 +118,8 @@ Writes `ci.yml` (pushes to `main` and pull requests), `release.yml` (`vX.Y.Z` ta
 
 ## Requirements
 
-- GitHub secrets: `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`, `SSH_PASS`, `SSH_PORT`, `DOCKER_AUTH`, plus `ENCRYPTION_PASSWORD` with `--db` (see the generated `.github/docs/WORKFLOWS.md`).
-- VPS: Docker Swarm, Traefik on the external `traefik-public` network with a `letsencrypt` cert resolver and a `websecure` entrypoint.
+- GitHub secrets: `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`, `SSH_PASS`, `SSH_PORT`, `SSH_FINGERPRINT` (VPS host key), `DOCKER_AUTH`, plus `ENCRYPTION_PASSWORD` with `--db` (see the generated `.github/docs/WORKFLOWS.md`).
+- VPS: Docker Swarm, Traefik on the external `traefik-public` network with a `letsencrypt` cert resolver and a `websecure` entrypoint, and `flock` (util-linux), which queues the deploys.
 - With `--db`: the DB Docker secrets (`generate.sh` prints the commands) and a `/backups` dir writable by the SSH user.
 - Every routed container must answer `GET /health` on its port (Swarm healthcheck uses `wget`, e.g. busybox in alpine images; Debian `-slim` images have neither `wget` nor `curl`). Migrations run with `sh -c`, so the server image needs a shell.
 - Tests (`--test-cmd`, `--pr-test-cmd`) run after `npm ci`, so the repo needs a `package-lock.json`.

@@ -11,6 +11,8 @@ __WORKFLOWS__
 
 jobs:
   update_staging:
+    # a failed production deploy leaves staging as it is
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
 
     permissions:

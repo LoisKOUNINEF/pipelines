@@ -8,7 +8,7 @@ if [[ -z "$STACK_NAME" ]]; then
 fi
 
 POSTGRES_SERVICE="${APP_LOWER}-${STACK_NAME}_postgres"
-if ! docker service ls --format "{{.Name}}" | grep -q "$POSTGRES_SERVICE"; then
+if ! docker service ls --format "{{.Name}}" | grep -qx "$POSTGRES_SERVICE"; then
   echo "PostgreSQL service '$POSTGRES_SERVICE' is not running."
   exit 1
 fi
@@ -24,6 +24,8 @@ PG_PASSWORD=$(read_secret "${APP_SNAKE}_${STACK_NAME}_db_password")
 DB_NAME=$(read_secret "${APP_SNAKE}_${STACK_NAME}_db_name")
 # Passed by the deploy workflow (ENCRYPTION_PASSWORD secret), or mounted as a swarm secret
 ENCRYPTION_PASSWORD="${ENCRYPTION_PASSWORD:-$(read_secret encryption_password)}"
+# passed by name (-e NAME, -pass env:NAME): values in arguments are visible to every VPS user in ps
+export PGPASSWORD="$PG_PASSWORD" ENCRYPTION_PASSWORD
 
 if [[ -z "$PG_USER" || -z "$PG_PASSWORD" || -z "$DB_NAME" || -z "$ENCRYPTION_PASSWORD" ]]; then
   echo "Error: Missing required database credentials or encryption password."
@@ -32,7 +34,7 @@ fi
 
 BACKUP_DIR="${BACKUP_DIR:-/backups}"
 if [[ -z "$BACKUP_FILE" ]]; then
-  BACKUP_FILE=$(ls -t "$BACKUP_DIR"/${DB_NAME}_backup_*.sql.gz.enc 2>/dev/null | head -n 1 || true)
+  BACKUP_FILE=$(ls -t "$BACKUP_DIR/${APP_SNAKE}_${STACK_NAME}_backup_"*.sql.gz.enc 2>/dev/null | head -n 1 || true)
   if [[ -z "$BACKUP_FILE" ]]; then
     echo "Error: No backup file found in '$BACKUP_DIR'."
     exit 1
@@ -44,8 +46,8 @@ if [[ ! -f "$BACKUP_FILE" ]]; then
   exit 1
 fi
 
-if ! openssl enc -d -aes-256-cbc -salt -pbkdf2 -pass pass:"$ENCRYPTION_PASSWORD" -in "$BACKUP_FILE" | \
-  gunzip | docker exec -i -e PGPASSWORD="$PG_PASSWORD" "$POSTGRES_CONTAINER" psql -v ON_ERROR_STOP=1 -q -U "$PG_USER" "$DB_NAME" > /dev/null; then
+if ! openssl enc -d -aes-256-cbc -salt -pbkdf2 -pass env:ENCRYPTION_PASSWORD -in "$BACKUP_FILE" | \
+  gunzip | docker exec -i -e PGPASSWORD "$POSTGRES_CONTAINER" psql -v ON_ERROR_STOP=1 -q -U "$PG_USER" "$DB_NAME" > /dev/null; then
   echo "Restore failed."
   exit 1
 fi
