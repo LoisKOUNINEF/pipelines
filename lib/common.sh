@@ -19,6 +19,36 @@ need_value() {
   [ $# -ge 2 ] && [ -n "$2" ] || fail "$1 requires a value"
 }
 
+# Checks --target and sets target_dir to its absolute path.
+validate_target() {
+  [ -n "$target" ] || fail "--target is required"
+  [ -d "$target" ] || fail "--target '$target' is not a directory"
+  target_dir="$(cd "$target" && pwd)"
+}
+
+# Checks --mode is solo or monorepo.
+validate_mode() {
+  [ -n "$mode" ] || fail "--mode is required (solo or monorepo)"
+  [ "$mode" = "solo" ] || [ "$mode" = "monorepo" ] || fail "--mode must be solo or monorepo"
+}
+
+# Exits when one of the given files exists, unless --force.
+refuse_existing() {
+  local f
+  local existing=()
+
+  $force && return 0
+  for f in "$@"; do
+    [ -e "$f" ] && existing+=("$f")
+  done
+  [ ${#existing[@]} -gt 0 ] || return 0
+
+  echo "Error: these files already exist:" >&2
+  printf '  %s\n' "${existing[@]}" >&2
+  echo "Re-run with --force to overwrite them." >&2
+  exit 1
+}
+
 is_path() {
   [[ "$1" =~ ^[A-Za-z0-9._/-]+$ ]]
 }
@@ -54,6 +84,19 @@ expand_blocks() {
   ' "$1"
 }
 
+# Prints a template with its block lines expanded (expand_blocks) and each inline __TOKEN__
+# replaced, in argument order: fill_template <template> TOKEN=value...
+fill_template() {
+  local template="$1" pair
+  local sed_args=()
+
+  shift
+  for pair in "$@"; do
+    sed_args+=(-e "s|__${pair%%=*}__|$(sed_escape "${pair#*=}")|g")
+  done
+  expand_blocks "$template" | sed "${sed_args[@]}"
+}
+
 # Prints a "run: |" key, never a plain scalar a command could break (": ", "#", "true"…):
 # run_block <indent> <cmd>
 run_block() {
@@ -78,6 +121,17 @@ package_json_name() {
 
 record() {
   written+=("${1#"$github_dir"/}")
+}
+
+# Writes a command's output to a generated file and records it: write_file <dest> <cmd> [args...]
+# (not fed from a pipe: record would run in a subshell)
+write_file() {
+  local dest="$1"
+
+  shift
+  mkdir -p "$(dirname "$dest")"
+  "$@" > "$dest"
+  record "$dest"
 }
 
 # Shared files: kept as-is when present, unless --force.

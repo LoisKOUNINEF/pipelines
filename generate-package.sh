@@ -32,99 +32,110 @@ Options:
 EOF
 }
 
-target=""
-mode=""
-package_dir=""
-name=""
-tag_prefix=""
-checks=()
-node_version="24"
-main_check=true
-force=false
+# --- steps ---
 
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --target) need_value "$@"; target="$2"; shift 2 ;;
-    --mode) need_value "$@"; mode="$2"; shift 2 ;;
-    --package-dir) need_value "$@"; package_dir="$2"; shift 2 ;;
-    --name) need_value "$@"; name="$2"; shift 2 ;;
-    --tag-prefix) need_value "$@"; tag_prefix="$2"; shift 2 ;;
-    --check) need_value "$@"; checks+=("$2"); shift 2 ;;
-    --node-version) need_value "$@"; node_version="$2"; shift 2 ;;
-    --skip-main-check) main_check=false; shift ;;
-    --force) force=true; shift ;;
-    -h|--help) usage; exit 0 ;;
-    *) fail "unknown argument '$1'" ;;
-  esac
-done
+# Sets the options (globals) from the command line, defaults first.
+parse_args() {
+  target=""
+  mode=""
+  package_dir=""
+  name=""
+  tag_prefix=""
+  checks=()
+  node_version="24"
+  main_check=true
+  force=false
 
-# --- validation ---
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --target) need_value "$@"; target="$2"; shift 2 ;;
+      --mode) need_value "$@"; mode="$2"; shift 2 ;;
+      --package-dir) need_value "$@"; package_dir="$2"; shift 2 ;;
+      --name) need_value "$@"; name="$2"; shift 2 ;;
+      --tag-prefix) need_value "$@"; tag_prefix="$2"; shift 2 ;;
+      --check) need_value "$@"; checks+=("$2"); shift 2 ;;
+      --node-version) need_value "$@"; node_version="$2"; shift 2 ;;
+      --skip-main-check) main_check=false; shift ;;
+      --force) force=true; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) fail "unknown argument '$1'" ;;
+    esac
+  done
+}
 
-[ -n "$target" ] || fail "--target is required"
-[ -d "$target" ] || fail "--target '$target' is not a directory"
-[ -n "$mode" ] || fail "--mode is required (solo or monorepo)"
-[ "$mode" = "solo" ] || [ "$mode" = "monorepo" ] || fail "--mode must be solo or monorepo"
-[[ "$node_version" =~ ^[A-Za-z0-9.*/_-]+$ ]] || fail "--node-version '$node_version' is not valid"
+# Checks the options that don't depend on the package, sets target_dir.
+validate_args() {
+  validate_target
+  validate_mode
+  [[ "$node_version" =~ ^[A-Za-z0-9.*/_-]+$ ]] || fail "--node-version '$node_version' is not valid"
+}
 
-target_dir="$(cd "$target" && pwd)"
+# Checks the package and sets package_dir, package_json, package_name, name and tag_prefix.
+resolve_package() {
+  if [ "$mode" = "monorepo" ]; then
+    [ -n "$package_dir" ] || fail "--package-dir is required in monorepo mode"
+    package_dir="$(normalize_dir "$package_dir")"
+    [ "$package_dir" != "." ] || fail "--package-dir can't be the repo root in monorepo mode (use --mode solo)"
+    [ -n "$name" ] || name="$(basename "$package_dir" | tr '[:upper:]_' '[:lower:]-')"
+  else
+    package_dir="$(normalize_dir "${package_dir:-.}")"
+    [ "$package_dir" = "." ] || fail "--package-dir only applies to monorepo mode"
+  fi
 
-if [ "$mode" = "monorepo" ]; then
-  [ -n "$package_dir" ] || fail "--package-dir is required in monorepo mode"
-  package_dir="$(normalize_dir "$package_dir")"
-  [ "$package_dir" != "." ] || fail "--package-dir can't be the repo root in monorepo mode (use --mode solo)"
-  [ -n "$name" ] || name="$(basename "$package_dir" | tr '[:upper:]_' '[:lower:]-')"
-else
-  package_dir="$(normalize_dir "${package_dir:-.}")"
-  [ "$package_dir" = "." ] || fail "--package-dir only applies to monorepo mode"
-fi
+  is_path "$package_dir" || fail "--package-dir '$package_dir' contains unsupported characters"
+  [ -f "$target_dir/$package_dir/package.json" ] || fail "no package.json in '$target_dir/$package_dir'"
 
-is_path "$package_dir" || fail "--package-dir '$package_dir' contains unsupported characters"
-[ -f "$target_dir/$package_dir/package.json" ] || fail "no package.json in '$target_dir/$package_dir'"
+  if [ "$package_dir" = "." ]; then
+    package_json="package.json"
+  else
+    package_json="$package_dir/package.json"
+  fi
 
-if [ "$package_dir" = "." ]; then
-  package_json="package.json"
-else
-  package_json="$package_dir/package.json"
-fi
+  # without node, the summary shows <package>
+  package_name="$(package_json_name "$target_dir/$package_json")"
 
-# without node, the summary shows <package>
-package_name="$(package_json_name "$target_dir/$package_json")"
+  # solo: "@scope/pkg" → "scope-pkg"
+  if [ -z "$name" ]; then
+    command -v node > /dev/null || fail "node is needed to read the package.json name: install it or pass --name"
+    name="$(printf '%s' "$package_name" | tr '[:upper:]' '[:lower:]' | sed -e 's|^@||' -e 's|[^a-z0-9]\{1,\}|-|g' -e 's|^-||' -e 's|-$||')"
+    [ -n "$name" ] || name="package"
+  fi
 
-# solo: "@scope/pkg" → "scope-pkg"
-if [ -z "$name" ]; then
-  command -v node > /dev/null || fail "node is needed to read the package.json name: install it or pass --name"
-  name="$(printf '%s' "$package_name" | tr '[:upper:]' '[:lower:]' | sed -e 's|^@||' -e 's|[^a-z0-9]\{1,\}|-|g' -e 's|^-||' -e 's|-$||')"
-  [ -n "$name" ] || name="package"
-fi
+  [[ "$name" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || fail "--name '$name' must match [a-z0-9-] (no leading/trailing dash)"
 
-[[ "$name" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || fail "--name '$name' must match [a-z0-9-] (no leading/trailing dash)"
+  if [ "$mode" = "monorepo" ]; then
+    [ -n "$tag_prefix" ] || tag_prefix="$name-v"
+  else
+    [ -n "$tag_prefix" ] || tag_prefix="v"
+  fi
+  # no glob characters: the prefix is used in the tag filter and in ${GITHUB_REF_NAME#prefix}
+  [[ "$tag_prefix" =~ ^[A-Za-z0-9._/-]+$ ]] || fail "--tag-prefix '$tag_prefix' can only contain letters, digits, '.', '_', '/' and '-'"
+}
 
-if [ "$mode" = "monorepo" ]; then
-  [ -n "$tag_prefix" ] || tag_prefix="$name-v"
-else
-  [ -n "$tag_prefix" ] || tag_prefix="v"
-fi
-# no glob characters: the prefix is used in the tag filter and in ${GITHUB_REF_NAME#prefix}
-[[ "$tag_prefix" =~ ^[A-Za-z0-9._/-]+$ ]] || fail "--tag-prefix '$tag_prefix' can only contain letters, digits, '.', '_', '/' and '-'"
+# Sets github_dir, workflows_dir and workflow_file.
+resolve_file_names() {
+  github_dir="$target_dir/.github"
+  workflows_dir="$github_dir/workflows"
 
-github_dir="$target_dir/.github"
-workflows_dir="$github_dir/workflows"
+  if [ "$mode" = "monorepo" ]; then
+    workflow_file="release-$name.yml"
+  else
+    workflow_file="release.yml"
+  fi
+}
 
-if [ "$mode" = "monorepo" ]; then
-  workflow_file="release-$name.yml"
-else
-  workflow_file="release.yml"
-fi
+# Exits when the workflow already exists (without --force) or clashes with another release workflow.
+check_existing_workflows() {
+  refuse_existing "$workflows_dir/$workflow_file"
+  check_tag_prefix_overlap
+}
 
-# --- existing workflows ---
+# Exits when another workflow's tag filter overlaps tag_prefix: one tag would publish both packages.
+check_tag_prefix_overlap() {
+  local f other
 
-if [ -e "$workflows_dir/$workflow_file" ] && ! $force; then
-  echo "Error: $workflows_dir/$workflow_file already exists. Re-run with --force to overwrite it." >&2
-  exit 1
-fi
+  [ -d "$workflows_dir" ] || return 0
 
-# overlapping tag filters ("v" and "v2-", same prefix) would publish both packages on one tag
-if [ -d "$workflows_dir" ]; then
   for f in "$workflows_dir"/*.yml; do
     [ -f "$f" ] || continue
     [ "$(basename "$f")" != "$workflow_file" ] || continue
@@ -138,61 +149,72 @@ if [ -d "$workflows_dir" ]; then
       fi
     done < <(sed -n '/^    tags:/,/^[^ ]/s/^      - "\{0,1\}\([^"*]*\)\*"\{0,1\}$/\1/p' "$f")
   done
-fi
+}
 
-# --- blocks ---
+# Exports the optional template blocks: BLOCK_MAIN_CHECK, BLOCK_CHECK_STEPS.
+build_blocks() {
+  local check
 
-export BLOCK_MAIN_CHECK=""
-if $main_check; then
-  BLOCK_MAIN_CHECK="$(
-    printf '      - name: Ensure tag is on main\n'
-    printf '        run: |\n'
-    printf '          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then\n'
-    printf '            echo "❌ Tag $GITHUB_REF_NAME is not on main. Aborting %s publish to npm workflow."\n' "$name"
-    printf '            exit 1\n'
-    printf '          fi\n'
-    printf '\n'
-  )"$'\n'
-fi
-
-export BLOCK_CHECK_STEPS=""
-if [ ${#checks[@]} -gt 0 ]; then
-  BLOCK_CHECK_STEPS="$(
-    for check in "${checks[@]}"; do
-      printf '      - name: %s\n' "$(yaml_title "Run $check")"
-      [ "$package_dir" = "." ] || printf '        working-directory: %s\n' "$package_dir"
-      run_block '        ' "$check"
+  export BLOCK_MAIN_CHECK=""
+  if $main_check; then
+    BLOCK_MAIN_CHECK="$(
+      printf '      - name: Ensure tag is on main\n'
+      printf '        run: |\n'
+      printf '          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then\n'
+      printf '            echo "❌ Tag $GITHUB_REF_NAME is not on main. Aborting %s publish to npm workflow."\n' "$name"
+      printf '            exit 1\n'
+      printf '          fi\n'
       printf '\n'
-    done
-  )"$'\n'
-fi
+    )"$'\n'
+  fi
 
-# --- write ---
+  export BLOCK_CHECK_STEPS=""
+  if [ ${#checks[@]} -gt 0 ]; then
+    BLOCK_CHECK_STEPS="$(
+      for check in "${checks[@]}"; do
+        printf '      - name: %s\n' "$(yaml_title "Run $check")"
+        [ "$package_dir" = "." ] || printf '        working-directory: %s\n' "$package_dir"
+        run_block '        ' "$check"
+        printf '\n'
+      done
+    )"$'\n'
+  fi
+}
 
-mkdir -p "$workflows_dir"
-expand_blocks "$TEMPLATES/workflows/release-package.yml" |
-  sed \
-    -e "s|__NAME__|$(sed_escape "$name")|g" \
-    -e "s|__TAG_PREFIX__|$(sed_escape "$tag_prefix")|g" \
-    -e "s|__NODE_VERSION__|$(sed_escape "$node_version")|g" \
-    -e "s|__PACKAGE_JSON__|$(sed_escape "$package_json")|g" \
-    -e "s|__PACKAGE_DIR__|$(sed_escape "$package_dir")|g" |
-  # a solo package is published from the repo root
-  sed -e '/^        working-directory: \.$/d' \
-  > "$workflows_dir/$workflow_file"
-record "$workflows_dir/$workflow_file"
+# Prints the release workflow.
+print_release_workflow() {
+  fill_template "$TEMPLATES/workflows/release-package.yml" \
+    NAME="$name" \
+    TAG_PREFIX="$tag_prefix" \
+    NODE_VERSION="$node_version" \
+    PACKAGE_JSON="$package_json" \
+    PACKAGE_DIR="$package_dir" |
+    # a solo package is published from the repo root
+    sed -e '/^        working-directory: \.$/d'
+}
 
-copy_shared "$TEMPLATES/docs/PACKAGES.md" "$github_dir/docs/PACKAGES.md"
+# Writes the release workflow and the shared docs.
+write_files() {
+  write_file "$workflows_dir/$workflow_file" print_release_workflow
+  copy_shared "$TEMPLATES/docs/PACKAGES.md" "$github_dir/docs/PACKAGES.md"
+}
 
-# --- summary ---
+# Prints the origin remote as "owner/repo", nothing without one.
+detect_repo() {
+  git -C "$target_dir" remote get-url origin 2>/dev/null | sed -E 's#^(git@[^:]+:|https?://[^/]+/)##; s#\.git$##' || true
+}
 
-echo "Generated release workflow for '${package_name:-$name}' ($mode) in $github_dir"
-echo
-print_files
+# Prints the written files, how to release and the npm setup.
+print_summary() {
+  local repo
 
-repo="$(git -C "$target_dir" remote get-url origin 2>/dev/null | sed -E 's#^(git@[^:]+:|https?://[^/]+/)##; s#\.git$##' || true)"
+  echo "Generated release workflow for '${package_name:-$name}' ($mode) in $github_dir"
+  echo
+  print_files
 
-cat <<EOF
+  repo="$(detect_repo)"
+
+  cat <<EOF
 
 Release: git tag ${tag_prefix}<version> && git push origin ${tag_prefix}<version>
          (<version> = "version" in $package_json$($main_check && echo ", tagged commit on main"))
@@ -202,3 +224,17 @@ Next steps:
       repository: ${repo:-<owner>/<repo>}, workflow file: $workflow_file
     (the package must exist on npm: publish its first version manually)
 EOF
+}
+
+main() {
+  parse_args "$@"
+  validate_args
+  resolve_package
+  resolve_file_names
+  check_existing_workflows
+  build_blocks
+  write_files
+  print_summary
+}
+
+main "$@"
