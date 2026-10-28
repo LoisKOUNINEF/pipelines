@@ -193,10 +193,11 @@ print_release_workflow() {
     sed -e '/^        working-directory: \.$/d'
 }
 
-# Writes the release workflow and the shared docs.
+# Writes the release workflow, the shared docs and .env.dist (if the repo's workflows use secrets).
 write_files() {
   write_file "$workflows_dir/$workflow_file" print_release_workflow
   copy_shared "$TEMPLATES/docs/PACKAGES.md" "$github_dir/docs/PACKAGES.md"
+  write_env_dist
 }
 
 # Prints the origin remote as "owner/repo", nothing without one.

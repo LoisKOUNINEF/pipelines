@@ -603,7 +603,7 @@ scan_repo_apps() {
   fi
 }
 
-# Copies the shared scripts, stack, workflows and docs the repo's app(s) use, removes the others.
+# Copies the shared scripts, stack, workflows and docs the repo's app(s) use, removes the others, writes .env.dist.
 write_shared_files() {
   local src script used
 
@@ -625,6 +625,7 @@ write_shared_files() {
   copy_shared "$TEMPLATES/docs/WORKFLOWS.md" "$github_dir/docs/WORKFLOWS.md"
 
   write_recreate_staging
+  write_env_dist
 }
 
 # Writes recreate-staging.yml, listing every staging-pipeline app's production workflow (so it's always rebuilt),
@@ -673,7 +674,7 @@ print_next_steps() {
   cat <<EOF
 
 Next steps:
-  - GitHub secrets: SSH_HOST, SSH_USER, SSH_PRIVATE_KEY, SSH_PASS, SSH_PORT, SSH_FINGERPRINT, DOCKER_AUTH${db:+, ENCRYPTION_PASSWORD (database backups)}
+  - GitHub secrets (names in .env.dist): SSH_HOST, SSH_USER, SSH_PRIVATE_KEY, SSH_PASS, SSH_PORT, SSH_FINGERPRINT, DOCKER_AUTH${db:+, ENCRYPTION_PASSWORD (database backups)}
     (DOCKER_AUTH = printf '%s' 'username:PAT' | base64 | tr -d '\n', classic PAT with read:packages only)
     (SSH_FINGERPRINT = the "SHA256:…" of ssh-keyscan -t ed25519 -p <port> <host> | ssh-keygen -lf -)
   - VPS: Docker Swarm + Traefik on the external 'traefik-public' network, flock (util-linux) to queue the deploys

@@ -119,6 +119,7 @@ Writes `ci.yml` (pushes to `main` and pull requests), `release.yml` (`vX.Y.Z` ta
 ## Requirements
 
 - GitHub secrets: `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`, `SSH_PASS`, `SSH_PORT`, `SSH_FINGERPRINT` (VPS host key), `DOCKER_AUTH`, plus `ENCRYPTION_PASSWORD` with `--db` (see the generated `.github/docs/WORKFLOWS.md`).
+- Every generator writes the names (no values) of the secrets its workflows use to `.env.dist` at the repo root, with the kit's `.env.dist` hints; an existing `.env.dist` is only appended the missing names.
 - VPS: Docker Swarm, Traefik on the external `traefik-public` network with a `letsencrypt` cert resolver and a `websecure` entrypoint, and `flock` (util-linux), which queues the deploys.
 - With `--db`: the DB Docker secrets (`generate.sh` prints the commands) and a `/backups` dir writable by the SSH user.
 - Every routed container must answer `GET /health` on its port (Swarm healthcheck uses `wget`, e.g. busybox in alpine images; Debian `-slim` images have neither `wget` nor `curl`). Migrations run with `sh -c`, so the server image needs a shell.

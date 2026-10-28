@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# Helpers shared by generate.sh, generate-package.sh and generate-extension.sh. Sourced, each script defines usage(),
-# and sets github_dir and force before writing files.
+# Helpers shared by generate.sh, generate-package.sh and generate-extension.sh. Sourced, each script defines usage()
+# and KIT_DIR, and sets target_dir, github_dir and force before writing files.
 
 written=()
 skipped=()
@@ -151,6 +151,62 @@ copy_shared() {
   cp "$src" "$dest"
   case "$dest" in *.sh) chmod +x "$dest" ;; esac
   record "$dest"
+}
+
+# Writes the names of the secrets used under .github/ to <target>/.env.dist, with their paragraph of the kit's
+# .env.dist (a paragraph is written when one of its names is used). An existing file is only appended the missing names.
+write_env_dist() {
+  local dest="$target_dir/.env.dist" missing
+
+  missing="$(
+    USED="$(grep -rhoE 'secrets\.[A-Z0-9_]+' "$github_dir" 2>/dev/null | sed 's/^secrets\.//' | grep -vx GITHUB_TOKEN | sort -u | tr '\n' ' ')" \
+    PRESENT="$([ -f "$dest" ] && sed -n 's/^\([A-Za-z0-9_]*\)=.*/\1/p' "$dest" | tr '\n' ' ')" \
+    awk '
+      function name_of(line) { return line ~ /^[A-Z0-9_]+=/ ? substr(line, 1, index(line, "=") - 1) : "" }
+      BEGIN {
+        RS = ""; FS = "\n"
+        nu = split(ENVIRON["USED"], u, " ")
+        for (i = 1; i <= nu; i++) used[u[i]] = 1
+        np = split(ENVIRON["PRESENT"], p, " ")
+        for (i = 1; i <= np; i++) present[p[i]] = 1
+      }
+      {
+        emit = 0
+        for (i = 1; i <= NF; i++) {
+          name = name_of($i)
+          if (name == "") continue
+          known[name] = 1
+          if ((name in used) && !(name in present)) emit = 1
+        }
+        if (!emit) next
+        if (out++) print ""
+        for (i = 1; i <= NF; i++) {
+          name = name_of($i)
+          if (name == "" || !(name in present)) print $i
+        }
+      }
+      # secrets the kit does not know (added to a workflow by hand)
+      END {
+        sep = out
+        for (i = 1; i <= nu; i++) {
+          if ((u[i] in known) || (u[i] in present)) continue
+          if (sep) { print ""; sep = 0 }
+          print u[i] "="
+        }
+      }
+    ' "$KIT_DIR/.env.dist"
+  )"
+
+  if [ -z "$missing" ]; then
+    [ ! -e "$dest" ] || skipped+=("../.env.dist")
+    return 0
+  fi
+  if [ -s "$dest" ]; then
+    [ -z "$(tail -c 1 "$dest")" ] || echo >> "$dest"
+    echo >> "$dest"
+  fi
+  printf '%s\n' "$missing" >> "$dest"
+  written+=("../.env.dist")
 }
 
 print_files() {

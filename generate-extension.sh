@@ -205,7 +205,7 @@ print_release_workflow() {
   ! $firefox_store || render "$TEMPLATES/workflows/extension/firefox-addons.yml"
 }
 
-# Writes ci.yml, release.yml, the build action and the shared files.
+# Writes ci.yml, release.yml, the build action, the shared files and .env.dist.
 write_files() {
   write_file "$workflows_dir/ci.yml" render "$TEMPLATES/workflows/extension/ci.yml"
   write_file "$workflows_dir/release.yml" print_release_workflow
@@ -213,6 +213,7 @@ write_files() {
 
   copy_shared "$TEMPLATES/dependabot.yml" "$github_dir/dependabot.yml"
   copy_shared "$TEMPLATES/docs/EXTENSIONS.md" "$github_dir/docs/EXTENSIONS.md"
+  write_env_dist
 }
 
 # Prints the written files, how to release and the store setup.
@@ -227,6 +228,7 @@ print_summary() {
     echo
     echo "Next steps:"
     echo "  - GitHub: Settings → Environments → create 'store' (add required reviewers to approve each submission)"
+    echo "  - 'store' secrets are listed in .env.dist"
     $chrome_store && echo "  - 'store' secrets: CWS_CLIENT_ID, CWS_CLIENT_SECRET, CWS_REFRESH_TOKEN, CWS_PUBLISHER_ID, CWS_EXTENSION_ID"
     $firefox_store && echo "  - 'store' secrets: AMO_JWT_ISSUER, AMO_JWT_SECRET (and keep web-ext in the devDependencies)"
   fi
