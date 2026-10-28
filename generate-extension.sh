@@ -222,7 +222,7 @@ print_summary() {
   print_files
 
   echo
-  echo "Release: bump the version (package.json and manifest.json), then git tag vX.Y.Z && git push origin vX.Y.Z"
+  echo "Release: bump the version in package.json, then git tag vX.Y.Z && git push origin vX.Y.Z"
   if $chrome_store || $firefox_store; then
     echo
     echo "Next steps:"
